@@ -29,7 +29,7 @@ sbit LCD_D5 = P2^4;
 sbit LCD_D6 = P2^5;
 sbit LCD_D7 = P2^6;
 
-/* 4x4 矩阵键盘（数字键映射为9~1） */
+/* 4x4 矩阵键盘（布局：7~9 / 4~6 / 1~3 / 0） */
 sbit R1 = P1^0;
 sbit R2 = P1^1;
 sbit R3 = P1^2;
@@ -70,6 +70,7 @@ volatile bit sec_flag = 0;
 
 volatile u16 tick_2ms = 0;
 volatile u16 screen_tick = 0;
+volatile u16 second_tick = 0;
 volatile u16 beep_ticks = 0;
 volatile u8  beep_div = 0;
 
@@ -687,12 +688,12 @@ void ShowAlarmParams(void)
         LcdSetPos(0,0);
         LcdPrint("A1 ");
         LcdPrint2(alarms[0].hour); LcdWriteData(':'); LcdPrint2(alarms[0].min);
-        LcdPrint(alarms[0].enable ? " ON" : "OFF");
+        LcdPrint(alarms[0].enable ? " ON " : "OFF ");
 
         LcdSetPos(0,1);
         LcdPrint("A2 ");
         LcdPrint2(alarms[1].hour); LcdWriteData(':'); LcdPrint2(alarms[1].min);
-        LcdPrint(alarms[1].enable ? " ON" : "OFF");
+        LcdPrint(alarms[1].enable ? " ON " : "OFF ");
 
         key = KeyScan();
         if(key == KEY_VIEW || key == KEY_MODE)
@@ -760,6 +761,7 @@ void Timer0Isr(void) interrupt 1
 
     tick_2ms++;
     screen_tick++;
+    second_tick++;
 
     if(tick_2ms >= 250)
     {
@@ -774,8 +776,9 @@ void Timer0Isr(void) interrupt 1
         if(current_screen > SCREEN_WEEK) current_screen = SCREEN_TIME;
     }
 
-    if((u16)(screen_tick % 500) == 0)
+    if(second_tick >= 500)
     {
+        second_tick = 0;
         sec_flag = 1;
     }
 
