@@ -58,12 +58,14 @@ sbit C4 = P1^7;
 #define EE_DATA_BASE  0x01
 #define EE_SIGN_VALUE 0x5A
 
-/* 12MHz 下，8051 定时器每机器周期约 1us；2ms 中断重装值 */
+/* 12MHz 下（标准12T），定时器计数步进约1us；2ms中断重装值 */
 #define TIMER0_RELOAD        (65536 - 2000)
 #define FLASH_TOGGLE_TICKS   250   /* 500ms */
 #define SCREEN_ROTATE_TICKS  3000  /* 6s */
 #define SECOND_TICKS         500   /* 1s */
 #define BEEP_TOGGLE_TICKS    10    /* 20ms 翻转一次 */
+#define DEFAULT_ALARM1_HOUR  7
+#define DEFAULT_ALARM2_HOUR  12
 
 /* ===================== 全局变量 ===================== */
 volatile u8 rtc_year = 24, rtc_month = 1, rtc_date = 1;
@@ -213,13 +215,14 @@ void LcdInit(void)
 
 void LcdShowStatus(void)
 {
-    LcdClear();
     LcdSetPos(0,0);
     LcdPrint("CLK ");
     LcdPrint2(rtc_hour); LcdWriteData(':'); LcdPrint2(rtc_min); LcdWriteData(':'); LcdPrint2(rtc_sec);
+    LcdPrint("   ");
     LcdSetPos(0,1);
     LcdPrint("CH:"); LcdWriteData(chime_enable ? '1' : '0');
     LcdPrint(" ALM:"); LcdWriteData(alarm_master_enable ? '1' : '0');
+    LcdPrint("      ");
 }
 
 /* ===================== DS1302 ===================== */
@@ -415,8 +418,8 @@ void LoadConfig(void)
     {
         chime_enable = 1;
         alarm_master_enable = 1;
-        alarms[0].hour = 7; alarms[0].min = 0; alarms[0].enable = 1;
-        alarms[1].hour = 12; alarms[1].min = 0; alarms[1].enable = 0;
+        alarms[0].hour = DEFAULT_ALARM1_HOUR; alarms[0].min = 0; alarms[0].enable = 1;
+        alarms[1].hour = DEFAULT_ALARM2_HOUR; alarms[1].min = 0; alarms[1].enable = 0;
         SaveConfig();
         return;
     }
@@ -432,8 +435,8 @@ void LoadConfig(void)
     alarms[1].min  = EepromReadByte(EE_DATA_BASE + 6);
     alarms[1].enable = EepromReadByte(EE_DATA_BASE + 7) ? 1 : 0;
 
-    if(alarms[0].hour > 23) alarms[0].hour = 7;
-    if(alarms[1].hour > 23) alarms[1].hour = 12;
+    if(alarms[0].hour > 23) alarms[0].hour = DEFAULT_ALARM1_HOUR;
+    if(alarms[1].hour > 23) alarms[1].hour = DEFAULT_ALARM2_HOUR;
     if(alarms[0].min > 59) alarms[0].min = 0;
     if(alarms[1].min > 59) alarms[1].min = 0;
 }
@@ -539,7 +542,7 @@ void StartBeepMs(u16 ms)
 
 u32 BuildMinuteStamp(void)
 {
-    /* [year|month|date|hour|min] 组合戳，避免跨月/跨年重复 */
+    /* [year:7|month:4|date:5|hour:5|min:6] => bit[26:0]，避免跨月/跨年重复 */
     return ((u32)rtc_year << 20) |
            ((u32)rtc_month << 16) |
            ((u32)rtc_date << 11) |
@@ -581,6 +584,8 @@ bit InputNumberField(char *title, u8 digits, u8 minv, u8 maxv, u8 *out)
     u8 key;
     u8 value;
     u8 k;
+
+    if(digits == 0 || digits > 3) return 0;
 
     edit_len = digits;
     edit_buf[0] = edit_buf[1] = edit_buf[2] = ' ';
@@ -628,19 +633,10 @@ bit InputNumberField(char *title, u8 digits, u8 minv, u8 maxv, u8 *out)
                 {
                     value = edit_buf[0] - '0';
                 }
-                else if(digits == 2)
-                {
-                    value = (edit_buf[0] - '0') * 10 + (edit_buf[1] - '0');
-                }
-                else if(digits == 3)
-                {
-                    value = 0;
-                    for(k = 0; k < 3; k++) value = value * 10 + (edit_buf[k] - '0');
-                }
                 else
                 {
                     value = 0;
-                    for(k = 0; k < digits && k < 3; k++) value = value * 10 + (edit_buf[k] - '0');
+                    for(k = 0; k < digits; k++) value = value * 10 + (edit_buf[k] - '0');
                 }
                 if(value >= minv && value <= maxv)
                 {
