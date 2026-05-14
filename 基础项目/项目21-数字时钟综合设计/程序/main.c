@@ -58,6 +58,13 @@ sbit C4 = P1^7;
 #define EE_DATA_BASE  0x01
 #define EE_SIGN_VALUE 0x5A
 
+/* 12MHz 下，8051 定时器每机器周期约 1us；2ms 中断重装值 */
+#define TIMER0_RELOAD        (65536 - 2000)
+#define FLASH_TOGGLE_TICKS   250   /* 500ms */
+#define SCREEN_ROTATE_TICKS  3000  /* 6s */
+#define SECOND_TICKS         500   /* 1s */
+#define BEEP_TOGGLE_TICKS    10    /* 20ms 翻转一次 */
+
 /* ===================== 全局变量 ===================== */
 volatile u8 rtc_year = 24, rtc_month = 1, rtc_date = 1;
 volatile u8 rtc_hour = 12, rtc_min = 0, rtc_sec = 0, rtc_week = 1;
@@ -82,13 +89,20 @@ typedef struct
     u8 hour;
     u8 min;
     bit enable;
-    u16 last_stamp;
+    u32 last_stamp;
 } Alarm_t;
 
 Alarm_t alarms[ALARM_COUNT];
 
 u8 edit_buf[3];
 u8 edit_len;
+
+code u8 KEY_MAP[4][4] = {
+    {7, 8, 9, KEY_COLON},
+    {4, 5, 6, KEY_BACK},
+    {1, 2, 3, KEY_ENTER},
+    {KEY_MODE, 0, KEY_VIEW, KEY_TOGGLE}
+};
 
 /* 共阳数码管段码（0~9、-、空） */
 code u8 SEG_CODE[12] = {
@@ -482,13 +496,7 @@ u8 KeyScan(void)
 {
     u8 i, j;
     u8 key;
-
-    u8 Key_Map[4][4] = {
-        {7, 8, 9, KEY_COLON},
-        {4, 5, 6, KEY_BACK},
-        {1, 2, 3, KEY_ENTER},
-        {KEY_MODE, 0, KEY_VIEW, KEY_TOGGLE}
-    };
+    bit pressed;
 
     for(i = 0; i < 4; i++)
     {
@@ -500,7 +508,7 @@ u8 KeyScan(void)
 
         for(j = 0; j < 4; j++)
         {
-            bit pressed = 0;
+            pressed = 0;
             if(j == 0 && C1 == 0) pressed = 1;
             if(j == 1 && C2 == 0) pressed = 1;
             if(j == 2 && C3 == 0) pressed = 1;
@@ -509,8 +517,11 @@ u8 KeyScan(void)
             if(pressed)
             {
                 DelayMs(20);
-                key = Key_Map[i][j];
-                while((j == 0 && C1 == 0) || (j == 1 && C2 == 0) || (j == 2 && C3 == 0) || (j == 3 && C4 == 0));
+                key = KEY_MAP[i][j];
+                if(j == 0) while(C1 == 0);
+                if(j == 1) while(C2 == 0);
+                if(j == 2) while(C3 == 0);
+                if(j == 3) while(C4 == 0);
                 return key;
             }
         }
@@ -526,15 +537,20 @@ void StartBeepMs(u16 ms)
     if(t > beep_ticks) beep_ticks = t;
 }
 
-u16 BuildMinuteStamp(void)
+u32 BuildMinuteStamp(void)
 {
-    return (u16)rtc_date * 1440 + (u16)rtc_hour * 60 + rtc_min;
+    /* [year|month|date|hour|min] 组合戳，避免跨月/跨年重复 */
+    return ((u32)rtc_year << 20) |
+           ((u32)rtc_month << 16) |
+           ((u32)rtc_date << 11) |
+           ((u32)rtc_hour << 6) |
+            (u32)rtc_min;
 }
 
 void CheckAlarmAndChime(void)
 {
     u8 i;
-    u16 stamp;
+    u32 stamp;
 
     if(rtc_sec != 0) return;
 
@@ -759,8 +775,8 @@ void HandleNormalKey(u8 key)
 void Timer0Init(void)
 {
     TMOD = 0x01;
-    TH0 = (65536 - 2000) / 256;
-    TL0 = (65536 - 2000) % 256;
+    TH0 = TIMER0_RELOAD / 256;
+    TL0 = TIMER0_RELOAD % 256;
     ET0 = 1;
     EA  = 1;
     TR0 = 1;
@@ -768,27 +784,27 @@ void Timer0Init(void)
 
 void Timer0Isr(void) interrupt 1
 {
-    TH0 = (65536 - 2000) / 256;
-    TL0 = (65536 - 2000) % 256;
+    TH0 = TIMER0_RELOAD / 256;
+    TL0 = TIMER0_RELOAD % 256;
 
     tick_2ms++;
     screen_tick++;
     second_tick++;
 
-    if(tick_2ms >= 250)
+    if(tick_2ms >= FLASH_TOGGLE_TICKS)
     {
         tick_2ms = 0;
         flash_flag = !flash_flag;
     }
 
-    if(screen_tick >= 3000)
+    if(screen_tick >= SCREEN_ROTATE_TICKS)
     {
         screen_tick = 0;
         current_screen++;
         if(current_screen > SCREEN_WEEK) current_screen = SCREEN_TIME;
     }
 
-    if(second_tick >= 500)
+    if(second_tick >= SECOND_TICKS)
     {
         second_tick = 0;
         sec_flag = 1;
@@ -798,7 +814,7 @@ void Timer0Isr(void) interrupt 1
     {
         beep_ticks--;
         beep_div++;
-        if(beep_div >= 10)
+        if(beep_div >= BEEP_TOGGLE_TICKS)
         {
             beep_div = 0;
             BUZZER = !BUZZER;
@@ -821,7 +837,7 @@ void main(void)
     u8 key;
     u8 i;
 
-    for(i = 0; i < ALARM_COUNT; i++) alarms[i].last_stamp = 0xFFFF;
+    for(i = 0; i < ALARM_COUNT; i++) alarms[i].last_stamp = 0xFFFFFFFF;
 
     BUZZER = 0;
     I2C_SDA = 1;
