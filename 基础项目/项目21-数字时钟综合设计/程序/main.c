@@ -111,6 +111,7 @@ void DelayMs(u16 ms)
     u16 i;
     while(ms--)
     {
+        /* 约按 12MHz 晶振估算的空转延时 */
         for(i = 0; i < 120; i++);
     }
 }
@@ -306,7 +307,7 @@ void I2cStop(void)
     I2C_SDA = 1; I2cDelay();
 }
 
-bit I2cWaitAck(void)
+bit I2cAckOk(void)
 {
     u16 t = 500;
     I2C_SDA = 1;
@@ -355,11 +356,11 @@ void EepromWriteByte(u8 addr, u8 dat)
 {
     I2cStart();
     I2cWriteByte(0xA0);
-    I2cWaitAck();
+    I2cAckOk();
     I2cWriteByte(addr);
-    I2cWaitAck();
+    I2cAckOk();
     I2cWriteByte(dat);
-    I2cWaitAck();
+    I2cAckOk();
     I2cStop();
     DelayMs(10);
 }
@@ -369,13 +370,13 @@ u8 EepromReadByte(u8 addr)
     u8 dat;
     I2cStart();
     I2cWriteByte(0xA0);
-    I2cWaitAck();
+    I2cAckOk();
     I2cWriteByte(addr);
-    I2cWaitAck();
+    I2cAckOk();
 
     I2cStart();
     I2cWriteByte(0xA1);
-    I2cWaitAck();
+    I2cAckOk();
     dat = I2cReadByte(0);
     I2cStop();
     return dat;
@@ -563,6 +564,7 @@ bit InputNumberField(char *title, u8 digits, u8 minv, u8 maxv, u8 *out)
     u8 idx = 0;
     u8 key;
     u8 value;
+    u8 k;
 
     edit_len = digits;
     edit_buf[0] = edit_buf[1] = edit_buf[2] = ' ';
@@ -610,9 +612,19 @@ bit InputNumberField(char *title, u8 digits, u8 minv, u8 maxv, u8 *out)
                 {
                     value = edit_buf[0] - '0';
                 }
-                else
+                else if(digits == 2)
                 {
                     value = (edit_buf[0] - '0') * 10 + (edit_buf[1] - '0');
+                }
+                else if(digits == 3)
+                {
+                    value = 0;
+                    for(k = 0; k < 3; k++) value = value * 10 + (edit_buf[k] - '0');
+                }
+                else
+                {
+                    value = 0;
+                    for(k = 0; k < digits && k < 3; k++) value = value * 10 + (edit_buf[k] - '0');
                 }
                 if(value >= minv && value <= maxv)
                 {
