@@ -329,9 +329,13 @@ bit I2cAckOk(void)
     u16 t = 500;
     I2C_SDA = 1;
     I2C_SCL = 1;
-    while(I2C_SDA && t--) ;
+    I2cDelay();
+    while(I2C_SDA && t--)
+    {
+        I2cDelay();
+    }
     I2C_SCL = 0;
-    return (t != 0);
+    return (I2C_SDA == 0);
 }
 
 void I2cWriteByte(u8 dat)
@@ -500,6 +504,7 @@ u8 KeyScan(void)
     u8 i, j;
     u8 key;
     bit pressed;
+    u16 timeout;
 
     for(i = 0; i < 4; i++)
     {
@@ -521,10 +526,11 @@ u8 KeyScan(void)
             {
                 DelayMs(20);
                 key = KEY_MAP[i][j];
-                if(j == 0) while(C1 == 0);
-                if(j == 1) while(C2 == 0);
-                if(j == 2) while(C3 == 0);
-                if(j == 3) while(C4 == 0);
+                timeout = 60000;
+                if(j == 0) while(C1 == 0 && timeout--) ;
+                if(j == 1) while(C2 == 0 && timeout--) ;
+                if(j == 2) while(C3 == 0 && timeout--) ;
+                if(j == 3) while(C4 == 0 && timeout--) ;
                 return key;
             }
         }
@@ -636,7 +642,15 @@ bit InputNumberField(char *title, u8 digits, u8 minv, u8 maxv, u8 *out)
                 else
                 {
                     value = 0;
-                    for(k = 0; k < digits; k++) value = value * 10 + (edit_buf[k] - '0');
+                    for(k = 0; k < digits; k++)
+                    {
+                        if(edit_buf[k] < '0' || edit_buf[k] > '9')
+                        {
+                            value = 255;
+                            break;
+                        }
+                        value = value * 10 + (edit_buf[k] - '0');
+                    }
                 }
                 if(value >= minv && value <= maxv)
                 {
